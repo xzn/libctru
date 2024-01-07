@@ -3,6 +3,24 @@
 #include <3ds/svc.h>
 #include <3ds/result.h>
 #include <3ds/synchronization.h>
+#include <3ds/os.h>
+
+static u64 tick_to_ns(u64 tick)
+{
+	u64 sec = tick / SYSCLOCK_ARM11;
+	u64 ns = tick % SYSCLOCK_ARM11 * 1000000000ULL / SYSCLOCK_ARM11;
+	return sec * 1000000000ULL + ns;
+}
+
+static s64 calc_target_ns(u64 lastTick, s64 timeout_ns)
+{
+	u64 nextTick = svcGetSystemTick();
+	u64 tickDiff = nextTick - lastTick;
+	u64 nsDiff = tick_to_ns(tickDiff);
+	if (nsDiff > timeout_ns)
+		return 0;
+	return timeout_ns - nsDiff;
+}
 
 static Handle arbiter;
 
@@ -98,6 +116,84 @@ int LightLock_TryLock(LightLock* lock)
 
 	__dmb();
 	return 0; // Success
+}
+
+Result LightLock_LockTimeout(LightLock* lock, s64 timeout_ns)
+{
+	s32 val;
+	bool bAlreadyLocked;
+
+	// Try to lock, or if that's not possible, increment the number of waiting threads
+	do
+	{
+		// Read the current lock state
+		val = __ldrex(lock);
+		if (val == 0) val = 1; // 0 is an invalid state - treat it as 1 (unlocked)
+		bAlreadyLocked = val < 0;
+
+		// Calculate the desired next state of the lock
+		if (!bAlreadyLocked)
+			val = -val; // transition into locked state
+		else
+			--val; // increment the number of waiting threads (which has the sign reversed during locked state)
+	} while (__strex(lock, val));
+
+	// While the lock is held by a different thread:
+	if (bAlreadyLocked)
+	{
+		u64 lastTick = svcGetSystemTick();
+		s64 target_ns = timeout_ns;
+		for (;;) {
+			// Wait for the lock holder thread to wake us up
+			Result rc;
+			rc = syncArbitrateAddressWithTimeout(lock, ARBITRATION_WAIT_IF_LESS_THAN_TIMEOUT, 0, target_ns);
+
+			// Timeout or error
+			if (rc)
+			{
+				// Release waiting thread count by 1
+				do
+				{
+					val = __ldrex(lock);
+					bAlreadyLocked = val < 0;
+
+					if (!bAlreadyLocked)
+						--val;
+					else
+						++val;
+				} while (__strex(lock, val));
+
+				__dmb();
+				return rc;
+			}
+
+			// Try to lock again
+			do
+			{
+				// Read the current lock state
+				val = __ldrex(lock);
+				bAlreadyLocked = val < 0;
+
+				// Calculate the desired next state of the lock
+				if (!bAlreadyLocked)
+					val = -(val-1); // decrement the number of waiting threads *and* transition into locked state
+				else
+				{
+					// Since the lock is still held, we need to cancel the atomic update and wait again
+					__clrex();
+					break;
+				}
+			} while (__strex(lock, val));
+
+			if (!bAlreadyLocked)
+				break;
+
+			target_ns = calc_target_ns(lastTick, timeout_ns);
+		};
+	}
+
+	__dmb();
+	return RL_SUCCESS;
 }
 
 void LightLock_Unlock(LightLock* lock)
@@ -406,6 +502,49 @@ int LightSemaphore_TryAcquire(LightSemaphore* semaphore, s32 count)
 
 	__dmb();
 	return 0; // success
+}
+
+Result LightSemaphore_AcquireTimeout(LightSemaphore* semaphore, s32 count, s64 timeout_ns)
+{
+	s32 old_count;
+	s16 num_threads_acq;
+
+	u64 lastTick = svcGetSystemTick();
+	s64 target_ns = timeout_ns;
+
+	do
+	{
+		for (;;)
+		{
+			old_count = __ldrex(&semaphore->current_count);
+			if (old_count >= count)
+				break;
+			__clrex();
+
+			do
+				num_threads_acq = (s16)__ldrexh((u16 *)&semaphore->num_threads_acq);
+			while (__strexh((u16 *)&semaphore->num_threads_acq, num_threads_acq + 1));
+
+			Result rc;
+			rc = syncArbitrateAddressWithTimeout(&semaphore->current_count, ARBITRATION_WAIT_IF_LESS_THAN_TIMEOUT, count, target_ns);
+
+			do
+				num_threads_acq = (s16)__ldrexh((u16 *)&semaphore->num_threads_acq);
+			while (__strexh((u16 *)&semaphore->num_threads_acq, num_threads_acq - 1));
+
+			// Timeout or error
+			if (rc)
+			{
+				__dmb();
+				return rc;
+			}
+
+			target_ns = calc_target_ns(lastTick, timeout_ns);
+		}
+	} while (__strex(&semaphore->current_count, old_count - count));
+
+	__dmb();
+	return RL_SUCCESS;
 }
 
 void LightSemaphore_Release(LightSemaphore* semaphore, s32 count)

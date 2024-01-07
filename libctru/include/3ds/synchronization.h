@@ -196,6 +196,14 @@ void LightLock_Lock(LightLock* lock);
 int LightLock_TryLock(LightLock* lock);
 
 /**
+ * @brief Attempts to lock a light lock with a timeout.
+ * @param lock Pointer to the lock.
+ * @param timeout_ns Timeout in nanoseconds.
+ * @return Zero on success, non-zero on failure.
+ */
+Result LightLock_LockTimeout(LightLock* lock, s64 timeout_ns);
+
+/**
  * @brief Unlocks a light lock.
  * @param lock Pointer to the lock.
  */
@@ -341,6 +349,15 @@ void LightSemaphore_Acquire(LightSemaphore* semaphore, s32 count);
  * @return Zero on success, non-zero on failure
  */
 int LightSemaphore_TryAcquire(LightSemaphore* semaphore, s32 count);
+
+/**
+ * @brief Attempts to acquire a light semaphore with a timeout.
+ * @param semaphore Pointer to the semaphore.
+ * @param count Acquire count
+ * @param timeout_ns Timeout in nanoseconds
+ * @return Zero on success, non-zero on failure
+ */
+Result LightSemaphore_AcquireTimeout(LightSemaphore* semaphore, s32 count, s64 timeout_ns);
 
 /**
  * @brief Releases a light semaphore.
