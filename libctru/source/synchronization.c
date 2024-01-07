@@ -158,10 +158,13 @@ Result LightLock_LockTimeout(LightLock* lock, s64 timeout_ns)
 					bAlreadyLocked = val < 0;
 
 					if (!bAlreadyLocked)
-						--val;
+						val = -(val-1); // decrement the number of waiting threads *and* transition into locked state
 					else
 						++val;
 				} while (__strex(lock, val));
+
+				if (!bAlreadyLocked)
+					break;
 
 				__dmb();
 				return rc;
