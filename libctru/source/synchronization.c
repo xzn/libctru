@@ -244,6 +244,22 @@ int RecursiveLock_TryLock(RecursiveLock* lock)
 	return 0; // Success
 }
 
+Result RecursiveLock_LockTimeout(RecursiveLock* lock, s64 timeout_ns)
+{
+	u32 tag = (u32)getThreadLocalStorage();
+	if (lock->thread_tag != tag)
+	{
+		Result rc = LightLock_LockTimeout(&lock->lock, timeout_ns);
+		if (rc != 0)
+		{
+			return rc;
+		}
+		lock->thread_tag = tag;
+	}
+	lock->counter ++;
+	return 0;
+}
+
 void RecursiveLock_Unlock(RecursiveLock* lock)
 {
 	if (!--lock->counter)

@@ -229,6 +229,14 @@ void RecursiveLock_Lock(RecursiveLock* lock);
 int RecursiveLock_TryLock(RecursiveLock* lock);
 
 /**
+ * @brief Attempts to lock a recursive lock with a timeout.
+ * @param lock Pointer to the lock.
+ * @param timeout_ns Timeout in nanoseconds.
+ * @return Zero on success, non-zero on failure.
+ */
+Result RecursiveLock_LockTimeout(RecursiveLock* lock, s64 timeout_ns);
+
+/**
  * @brief Unlocks a recursive lock.
  * @param lock Pointer to the lock.
  */
