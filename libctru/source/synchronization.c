@@ -447,11 +447,14 @@ int LightEvent_WaitTimeout(LightEvent* event, s64 timeout_ns)
 	Result  timeoutRes = 0x09401BFE;
 	Result  res = 0;
 
-	while (res != timeoutRes)
+	u64 lastTick = svcGetSystemTick();
+	s64 target_ns = timeout_ns;
+
+	for (;;)
 	{
 		if (event->state == CLEARED_STICKY)
 		{
-			res = syncArbitrateAddressWithTimeout(&event->state, ARBITRATION_WAIT_IF_LESS_THAN_TIMEOUT, SIGNALED_ONESHOT, timeout_ns);
+			res = syncArbitrateAddressWithTimeout(&event->state, ARBITRATION_WAIT_IF_LESS_THAN_TIMEOUT, SIGNALED_ONESHOT, target_ns);
 			return res == timeoutRes;
 		}
 
@@ -464,10 +467,13 @@ int LightEvent_WaitTimeout(LightEvent* event, s64 timeout_ns)
 				return 0;
 		}
 
-		res = syncArbitrateAddressWithTimeout(&event->state, ARBITRATION_WAIT_IF_LESS_THAN_TIMEOUT, SIGNALED_ONESHOT, timeout_ns);
-	}
+		res = syncArbitrateAddressWithTimeout(&event->state, ARBITRATION_WAIT_IF_LESS_THAN_TIMEOUT, SIGNALED_ONESHOT, target_ns);
 
-	return res == timeoutRes;
+		if (res == timeoutRes)
+			return 1;
+
+		target_ns = calc_target_ns(lastTick, timeout_ns);
+	}
 }
 
 void LightSemaphore_Init(LightSemaphore* semaphore, s16 initial_count, s16 max_count)
