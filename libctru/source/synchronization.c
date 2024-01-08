@@ -5,14 +5,14 @@
 #include <3ds/synchronization.h>
 #include <3ds/os.h>
 
-static u64 tick_to_ns(u64 tick)
+static inline u64 tick_to_ns(u64 tick)
 {
 	u64 sec = tick / SYSCLOCK_ARM11;
 	u64 ns = tick % SYSCLOCK_ARM11 * 1000000000ULL / SYSCLOCK_ARM11;
 	return sec * 1000000000ULL + ns;
 }
 
-static s64 calc_target_ns(u64 lastTick, s64 timeout_ns)
+static inline s64 calc_target_ns(u64 lastTick, s64 timeout_ns)
 {
 	u64 nextTick = svcGetSystemTick();
 	u64 tickDiff = nextTick - lastTick;
@@ -450,7 +450,7 @@ int LightEvent_WaitTimeout(LightEvent* event, s64 timeout_ns)
 	u64 lastTick = svcGetSystemTick();
 	s64 target_ns = timeout_ns;
 
-	for (;;)
+	for (int need_calc_target_ns = 0;; need_calc_target_ns = 1)
 	{
 		if (event->state == CLEARED_STICKY)
 		{
@@ -467,12 +467,13 @@ int LightEvent_WaitTimeout(LightEvent* event, s64 timeout_ns)
 				return 0;
 		}
 
+		if (need_calc_target_ns)
+			target_ns = calc_target_ns(lastTick, timeout_ns);
+
 		res = syncArbitrateAddressWithTimeout(&event->state, ARBITRATION_WAIT_IF_LESS_THAN_TIMEOUT, SIGNALED_ONESHOT, target_ns);
 
 		if (res == timeoutRes)
 			return 1;
-
-		target_ns = calc_target_ns(lastTick, timeout_ns);
 	}
 }
 
@@ -539,7 +540,7 @@ Result LightSemaphore_AcquireTimeout(LightSemaphore* semaphore, s32 count, s64 t
 
 	do
 	{
-		for (;;)
+		for (int need_calc_target_ns = 0;; need_calc_target_ns = 1)
 		{
 			old_count = __ldrex(&semaphore->current_count);
 			if (old_count >= count)
@@ -549,6 +550,9 @@ Result LightSemaphore_AcquireTimeout(LightSemaphore* semaphore, s32 count, s64 t
 			do
 				num_threads_acq = (s16)__ldrexh((u16 *)&semaphore->num_threads_acq);
 			while (__strexh((u16 *)&semaphore->num_threads_acq, num_threads_acq + 1));
+
+			if (need_calc_target_ns)
+				target_ns = calc_target_ns(lastTick, timeout_ns);
 
 			Result rc;
 			rc = syncArbitrateAddressWithTimeout(&semaphore->current_count, ARBITRATION_WAIT_IF_LESS_THAN_TIMEOUT, count, target_ns);
@@ -563,8 +567,6 @@ Result LightSemaphore_AcquireTimeout(LightSemaphore* semaphore, s32 count, s64 t
 				__dmb();
 				return rc;
 			}
-
-			target_ns = calc_target_ns(lastTick, timeout_ns);
 		}
 	} while (__strex(&semaphore->current_count, old_count - count));
 
