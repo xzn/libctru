@@ -444,20 +444,19 @@ void LightEvent_Wait(LightEvent* event)
 
 int LightEvent_WaitTimeout(LightEvent* event, s64 timeout_ns)
 {
-	Result  timeoutRes = 0x09401BFE;
-	Result  res = 0;
+	Result  rc = 0;
+
+	if (event->state == CLEARED_STICKY)
+	{
+		rc = syncArbitrateAddressWithTimeout(&event->state, ARBITRATION_WAIT_IF_LESS_THAN_TIMEOUT, SIGNALED_ONESHOT, timeout_ns);
+		return R_DESCRIPTION(rc) == RD_TIMEOUT;
+	}
 
 	u64 lastTick = svcGetSystemTick();
 	s64 target_ns = timeout_ns;
 
 	for (int need_calc_target_ns = 0;; need_calc_target_ns = 1)
 	{
-		if (event->state == CLEARED_STICKY)
-		{
-			res = syncArbitrateAddressWithTimeout(&event->state, ARBITRATION_WAIT_IF_LESS_THAN_TIMEOUT, SIGNALED_ONESHOT, target_ns);
-			return res == timeoutRes;
-		}
-
 		if (event->state != CLEARED_ONESHOT)
 		{
 			if (event->state == SIGNALED_STICKY)
@@ -470,10 +469,18 @@ int LightEvent_WaitTimeout(LightEvent* event, s64 timeout_ns)
 		if (need_calc_target_ns)
 			target_ns = calc_target_ns(lastTick, timeout_ns);
 
-		res = syncArbitrateAddressWithTimeout(&event->state, ARBITRATION_WAIT_IF_LESS_THAN_TIMEOUT, SIGNALED_ONESHOT, target_ns);
+		rc = syncArbitrateAddressWithTimeout(&event->state, ARBITRATION_WAIT_IF_LESS_THAN_TIMEOUT, SIGNALED_ONESHOT, target_ns);
 
-		if (res == timeoutRes)
+		if (R_DESCRIPTION(rc) == RD_TIMEOUT)
 			return 1;
+
+		if (event->state == CLEARED_STICKY)
+		{
+			target_ns = calc_target_ns(lastTick, timeout_ns);
+
+			rc = syncArbitrateAddressWithTimeout(&event->state, ARBITRATION_WAIT_IF_LESS_THAN_TIMEOUT, SIGNALED_ONESHOT, target_ns);
+			return R_DESCRIPTION(rc) == RD_TIMEOUT;
+		}
 	}
 }
 
