@@ -153,7 +153,7 @@ static void gspHardwareInit(void)
 	gspWriteGxReg(0x0574, 0x10501);
 }
 
-Result gspInit(void)
+Result gspInit(int noAcquireRight)
 {
 	Result ret=0;
 	if (AtomicPostIncrement(&gspRefCount)) return 0;
@@ -167,8 +167,10 @@ Result gspInit(void)
 	if (R_FAILED(ret)) goto _fail0;
 
 	// Acquire GPU rights
-	ret = GSPGPU_AcquireRight(0);
-	if (R_FAILED(ret)) goto _fail1;
+	if (noAcquireRight == 0) {
+		ret = GSPGPU_AcquireRight(0);
+		if (R_FAILED(ret)) goto _fail1;
+	}
 
 	// Register ourselves as a user of graphics hardware
 	svcCreateEvent(&gspEvent, RESET_ONESHOT);

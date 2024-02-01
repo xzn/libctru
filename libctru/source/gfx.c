@@ -138,7 +138,7 @@ void gfxInit(GSPGPU_FramebufferFormat topFormat, GSPGPU_FramebufferFormat bottom
 	}
 
 	// Initialize GSP
-	gspInit();
+	gspInit(0);
 
 	// Initialize configuration
 	gfxSet3D(false);

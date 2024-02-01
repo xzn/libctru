@@ -84,7 +84,7 @@ static inline unsigned gspGetBytesPerPixel(GSPGPU_FramebufferFormat format)
 }
 
 /// Initializes GSPGPU.
-Result gspInit(void);
+Result gspInit(int noAcquireRight);
 
 /// Exits GSPGPU.
 void gspExit(void);
