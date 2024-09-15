@@ -148,12 +148,12 @@ typedef enum {
 
 /// Configuration flags for \ref DmaConfig.
 enum {
-	DMACFG_DST_IS_DEVICE        = BIT(0), ///< DMA destination is a device/peripheral. Address will not auto-increment.
-	DMACFG_SRC_IS_DEVICE        = BIT(1), ///< DMA source is a device/peripheral. Address will not auto-increment.
+	DMACFG_SRC_DEVICE_CONFIG    = BIT(0), ///< DMA source is a device/peripheral. Address will not auto-increment.
+	DMACFG_DST_DEVICE_CONFIG    = BIT(1), ///< DMA destinaion is a device/peripheral. Address will not auto-increment.
 	DMACFG_WAIT_AVAILABLE       = BIT(2), ///< Make \ref svcStartInterProcessDma wait for the channel to be unlocked.
 	DMACFG_KEEP_LOCKED          = BIT(3), ///< Keep the channel locked after the transfer. Required for \ref svcRestartDma.
-	DMACFG_USE_DST_CONFIG       = BIT(6), ///< Use the provided destination device configuration even if the DMA destination is not a device.
-	DMACFG_USE_SRC_CONFIG       = BIT(7), ///< Use the provided source device configuration even if the DMA source is not a device.
+	DMACFG_DST_MEMORY_CONFIG    = BIT(6), ///< Use the provided destination memory configuration even if the DMA source is not a device.
+	DMACFG_SRC_MEMORY_CONFIG    = BIT(7), ///< Use the provided source memory configuration even if the DMA destination is not a device.
 };
 
 /// Configuration flags for \ref svcRestartDma.
@@ -163,7 +163,7 @@ enum {
 };
 
 /**
- * @brief Device configuration structure, part of \ref DmaConfig.
+ * @brief DMA device configuration structure, part of \ref DmaConfig.
  * @note
  * - if (and only if) src/dst is a device, then src/dst won't be auto-incremented.
  * - the kernel uses DMAMOV instead of DMAADNH, when having to decrement (possibly working around an erratum);
@@ -172,12 +172,22 @@ enum {
  */
 typedef struct {
 	s8 deviceId;            ///< DMA device ID.
-	s8 allowedAlignments;   ///< Mask of allowed access alignments (8, 4, 2, 1).
+	s8 allowedAlignments;   ///< Mask of allowed access alignments: (1 | 4 | 8 | 0xC | 0xF).
+} DmaDeviceConfig;
+
+/**
+ * @brief DMA memory configuration structure, part of \ref DmaConfig.
+ * @note
+ * - if src/dst is a device (with DMACFG_*_DEVICE_CONFIG), then dst/src memory configuration (notice the opposite order) will be read,
+ * even if the respective flag (DMACFG_*_MEMORY_CONFIG) isn't set.
+ * - in other words, if one end of the dma operation is a device, then memory configuration must be set for the other end.
+ */
+typedef struct {
 	s16 burstSize;          ///< Number of bytes transferred in a burst loop. Can be 0 (in which case the max allowed alignment is used as unit).
 	s16 transferSize;       ///< Number of bytes transferred in a "transfer" loop (made of burst loops).
 	s16 burstStride;        ///< Burst loop stride, can be <= 0.
 	s16 transferStride;     ///< "Transfer" loop stride, can be <= 0.
-} DmaDeviceConfig;
+} DmaMemoryConfig;
 
 /// Configuration stucture for \ref svcStartInterProcessDma.
 typedef struct {
@@ -185,8 +195,10 @@ typedef struct {
 	s8 endianSwapSize;      ///< Endian swap size (can be 0).
 	u8 flags;               ///< DMACFG_* flags.
 	u8 _padding;
-	DmaDeviceConfig dstCfg; ///< Destination device configuration, read if \ref DMACFG_DST_IS_DEVICE and/or \ref DMACFG_USE_DST_CONFIG are set.
-	DmaDeviceConfig srcCfg; ///< Source device configuration, read if \ref DMACFG_SRC_IS_DEVICE and/or \ref DMACFG_USE_SRC_CONFIG are set.
+	DmaDeviceConfig srcDev; ///< Source device configuration, read if \ref DMACFG_SRC_DEVICE_CONFIG is set.
+	DmaMemoryConfig dstMem; ///< Destination memory configuration, read if \ref DMACFG_SRC_DEVICE_CONFIG and/or \ref DMACFG_DST_MEMORY_CONFIG are set.
+	DmaDeviceConfig dstDev; ///< Destination device configuration, read if \ref DMACFG_DST_DEVICE_CONFIG is set.
+	DmaMemoryConfig srcMem; ///< Source memory configuration, read if \ref DMACFG_DST_DEVICE_CONFIG and/or \ref DMACFG_SRC_MEMORY_CONFIG are set.
 } DmaConfig;
 
 ///@}
@@ -230,7 +242,7 @@ typedef enum
 
 /**
  * @brief Performance counter event IDs (CP15 or SCU).
- * 
+ *
  * @note Refer to:
  *     - CP15: https://developer.arm.com/documentation/ddi0360/e/control-coprocessor-cp15/register-descriptions/c15--performance-monitor-control-register--pmnc-
  *     - SCU: https://developer.arm.com/documentation/ddi0360/e/mpcore-private-memory-region/about-the-mpcore-private-memory-region/performance-monitor-event-registers
@@ -556,13 +568,21 @@ static inline u32* getThreadStaticBuffers(void)
 ///@name Device drivers
 ///@{
 
-/// Writes the default DMA device config that the kernel uses when DMACFG_*_IS_DEVICE and DMACFG_*_USE_CFG are not set
+/// Writes the default DMA device config that the kernel uses when DMACFG_*_DEVICE_CONFIG and DMACFG_*_MEMORY_CONFIG are not set
 static inline void dmaDeviceConfigInitDefault(DmaDeviceConfig *cfg)
 {
-	// Kernel uses this default instance if _IS_DEVICE and _USE_CFG are not set
+	// Kernel uses this default instance if _DEVICE_CONFIG and _MEMORY_CONFIG are not set
 	*cfg = (DmaDeviceConfig) {
 		.deviceId = -1,
-		.allowedAlignments = 8 | 4 | 2 | 1,
+		.allowedAlignments = 0xF,
+	};
+}
+
+/// Writes the default DMA memory config that the kernel uses when DMACFG_*_DEVICE_CONFIG and DMACFG_*_MEMORY_CONFIG are not set
+static inline void dmaMemoryConfigInitDefault(DmaMemoryConfig *cfg)
+{
+	// Kernel uses this default instance if _DEVICE_CONFIG and _MEMORY_CONFIG are not set
+	*cfg = (DmaMemoryConfig) {
 		.burstSize = 0x80,
 		.transferSize = 0,
 		.burstStride = 0x80,
@@ -578,8 +598,10 @@ static inline void dmaConfigInitDefault(DmaConfig *cfg)
 		.endianSwapSize = 0,
 		.flags = DMACFG_WAIT_AVAILABLE,
 		._padding = 0,
-		.srcCfg = {},
-		.dstCfg = {},
+		.srcDev = {},
+		.dstMem = {},
+		.dstDev = {},
+		.srcMem = {},
 	};
 }
 
