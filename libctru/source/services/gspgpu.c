@@ -186,6 +186,12 @@ Result gspInit(int noAcquireRight)
 	gspSharedMem = mappableAlloc(0x1000);
 	svcMapMemoryBlock(gspSharedMemHandle, (u32)gspSharedMem, MEMPERM_READWRITE, MEMPERM_DONTCARE);
 
+	// Initialize interrupt queue header
+	s32* sharedGspCmdBuf = (s32*)((u8*)gspSharedMem + 0x800 + gspThreadId*0x200);
+	do {
+		__ldrex(sharedGspCmdBuf);
+	} while (__strex(sharedGspCmdBuf, 0));
+
 	// Start event handling thread
 	gspRunEvents = true;
 	gspLastEvent = -1;
@@ -548,6 +554,34 @@ Result GSPGPU_TriggerCmdReqQueue(void)
 
 	return cmdbuf[1];
 }
+
+Result GSPGPU_SetPerfLogMode(bool enabled)
+{
+    u32 *cmdbuf = getThreadCommandBuffer();
+
+	cmdbuf[0] = IPC_MakeHeader(0x11,1,0); // 0x110040
+	cmdbuf[1] = enabled ? 1 : 0;
+
+	Result ret=0;
+	if (R_FAILED(ret = svcSendSyncRequest(gspGpuHandle))) return ret;
+
+	return cmdbuf[1];
+}
+
+Result GSPGPU_GetPerfLog(GSPGPU_PerfLog *outPerfLog)
+{
+    u32 *cmdbuf = getThreadCommandBuffer();
+
+	cmdbuf[0] = IPC_MakeHeader(0x12,0,0); // 0x120000
+
+	Result ret=0;
+	if (R_FAILED(ret = svcSendSyncRequest(gspGpuHandle))) return ret;
+
+	memcpy(outPerfLog, &cmdbuf[2], sizeof(GSPGPU_PerfLog));
+
+	return cmdbuf[1];
+}
+
 
 Result GSPGPU_RegisterInterruptRelayQueue(Handle eventHandle, u32 flags, Handle* outMemHandle, u8* threadID)
 {
