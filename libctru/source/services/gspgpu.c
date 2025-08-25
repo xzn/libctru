@@ -160,7 +160,7 @@ Result gspInit(int noAcquireRight)
 
 	// Initialize events
 	for (int i = 0; i < GSPGPU_EVENT_MAX; i ++)
-		LightEvent_Init(&gspEvents[i], RESET_STICKY);
+		LightEvent_Init(&gspEvents[i], RESET_ONESHOT);
 
 	// Retrieve a GSP service session handle
 	ret = srvGetServiceHandle(&gspGpuHandle, "gsp::Gpu");
@@ -297,8 +297,6 @@ void gspWaitForEvent(GSPGPU_Event id, bool nextEvent)
 	if (nextEvent)
 		LightEvent_Clear(&gspEvents[id]);
 	LightEvent_Wait(&gspEvents[id]);
-	if (!nextEvent)
-		LightEvent_Clear(&gspEvents[id]);
 }
 
 GSPGPU_Event gspWaitForAnyEvent(void)
@@ -368,7 +366,6 @@ void gspEventThreadMain(void *arg)
 	while (gspRunEvents)
 	{
 		svcWaitSynchronization(gspEvent, U64_MAX);
-		svcClearEvent(gspEvent);
 
 		if (!gspRunEvents)
 			break;
