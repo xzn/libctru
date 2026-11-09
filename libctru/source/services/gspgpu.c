@@ -299,6 +299,15 @@ void gspWaitForEvent(GSPGPU_Event id, bool nextEvent)
 	LightEvent_Wait(&gspEvents[id]);
 }
 
+int gspWaitForEventTimeout(GSPGPU_Event id, bool nextEvent, s64 timeout_ns)
+{
+	if(id>= GSPGPU_EVENT_MAX)return -1;
+
+	if (nextEvent)
+		LightEvent_Clear(&gspEvents[id]);
+	return LightEvent_WaitTimeout(&gspEvents[id], timeout_ns);
+}
+
 GSPGPU_Event gspWaitForAnyEvent(void)
 {
 	s32 x;

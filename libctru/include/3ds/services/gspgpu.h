@@ -156,6 +156,8 @@ void gspSetEventCallback(GSPGPU_Event id, ThreadFunc cb, void* data, bool oneSho
  */
 void gspWaitForEvent(GSPGPU_Event id, bool nextEvent);
 
+int gspWaitForEventTimeout(GSPGPU_Event id, bool nextEvent, s64 timeout_ns);
+
 /**
  * @brief Waits for any GSPGPU event to occur.
  * @return The ID of the event that occurred.
